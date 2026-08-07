@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Calendar, Schedule",
-  "version": "0.4.12",
+  "version": "0.5.0",
   "kind": "widget",
   "description": "Timeline-rail agenda view. Lists upcoming events grouped by day, with a thin ink rail connecting per-event nodes and a coloured start-time chip carrying the feed accent. Titles wrap freely so the widget stays legible from 1 up to 4 narrow columns on wide e-ink panels. Pulls from the same calendar_core feeds as the other calendar_* widgets.",
   "icon": "ph-list-bullets",
@@ -54,6 +54,20 @@
       "label": "Feed IDs (comma-separated; blank = all enabled)",
       "default": "",
       "help": "Restrict to specific feeds. Leave blank to include every enabled feed configured in calendar_core."
+    },
+    {
+      "name": "hide_keywords",
+      "type": "string",
+      "label": "Hide events matching (comma-separated)",
+      "default": "",
+      "help": "Drop events whose title or location contains any of these words. Case-insensitive, matches part of a word, so \"lunch\" hides \"Lunch with Poppy\". Handy for a recurring event you don't need on the panel."
+    },
+    {
+      "name": "only_keywords",
+      "type": "string",
+      "label": "Only show events matching (comma-separated)",
+      "default": "",
+      "help": "Leave blank for everything. When set, only events whose title or location contains one of these words are shown; any Hide words still apply on top."
     },
     {
       "name": "show_location",
@@ -163,11 +177,26 @@
       "default": "auto",
       "help": "Flow the agenda across multiple columns so a longer window (say two weeks) fits in a half-height cell without shrinking every row. Auto grows columns 1 up to 4 until the whole list fits. Days stay atomic (never split across columns), and column-fill packs by real content height, not by day count.",
       "choices": [
-        {"value": "auto", "label": "Auto (grow until list fits)"},
-        {"value": "1", "label": "1 column"},
-        {"value": "2", "label": "2 columns (good on 1200-wide portrait)"},
-        {"value": "3", "label": "3 columns (good on 1600+ wide landscape)"},
-        {"value": "4", "label": "4 columns (wide panels only)"}
+        {
+          "value": "auto",
+          "label": "Auto (grow until list fits)"
+        },
+        {
+          "value": "1",
+          "label": "1 column"
+        },
+        {
+          "value": "2",
+          "label": "2 columns (good on 1200-wide portrait)"
+        },
+        {
+          "value": "3",
+          "label": "3 columns (good on 1600+ wide landscape)"
+        },
+        {
+          "value": "4",
+          "label": "4 columns (wide panels only)"
+        }
       ]
     }
   ],

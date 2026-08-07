@@ -535,3 +535,90 @@ def test_show_title_defaults_to_true_and_is_forwarded() -> None:
         )
     assert default_out["show_title"] is True
     assert off_out["show_title"] is False
+
+
+# -- keyword filters (discussion #193) -------------------------------------
+
+
+def _three_events() -> list[dict[str, Any]]:
+    return [
+        {
+            "summary": "Lunch with Poppy",
+            "start": _future_today_iso(1),
+            "end": _future_today_iso(2),
+            "all_day": False,
+            "feed_name": "y",
+            "feed_colour": "#abc",
+            "location": "Cafe Rosa",
+        },
+        {
+            "summary": "Dentist",
+            "start": _future_today_iso(3),
+            "end": _future_today_iso(4),
+            "all_day": False,
+            "feed_name": "y",
+            "feed_colour": "#abc",
+        },
+        {
+            "summary": "Standup",
+            "start": _future_today_iso(5),
+            "end": _future_today_iso(6),
+            "all_day": False,
+            "feed_name": "y",
+            "feed_colour": "#abc",
+            "location": "Cafe Rosa",
+        },
+    ]
+
+
+def _titles(out: dict[str, Any]) -> list[str]:
+    return [e["summary"] for d in out["days"] for e in d["events"]]
+
+
+def _run(options: dict[str, Any]) -> dict[str, Any]:
+    app, _registry, core, _settings = _stub_app()
+    core.server_module.load_events.return_value = _three_events()
+    with patch.object(server, "current_app", app):
+        return server.fetch(options={"days_ahead": "1", **options}, settings={}, ctx={})
+
+
+def test_hide_keywords_drops_matching_events() -> None:
+    """The ask: hide a recurring "Lunch with Poppy" by typing "Lunch"."""
+    assert _titles(_run({"hide_keywords": "lunch"})) == ["Dentist", "Standup"]
+
+
+def test_hide_keywords_is_case_insensitive_and_matches_part_of_a_word() -> None:
+    assert _titles(_run({"hide_keywords": "LUNCH"})) == ["Dentist", "Standup"]
+    assert _titles(_run({"hide_keywords": "dent"})) == ["Lunch with Poppy", "Standup"]
+
+
+def test_hide_keywords_accepts_several_terms() -> None:
+    assert _titles(_run({"hide_keywords": "lunch, dentist"})) == ["Standup"]
+
+
+def test_hide_keywords_matches_the_location_too() -> None:
+    """Filtering on a place drops everything there without naming each event."""
+    assert _titles(_run({"hide_keywords": "cafe rosa"})) == ["Dentist"]
+
+
+def test_hide_keywords_ignores_the_location_when_locations_are_hidden() -> None:
+    """Matching text the panel doesn't show would look like events vanishing
+    for no reason."""
+    out = _run({"hide_keywords": "cafe rosa", "show_location": False})
+    assert _titles(out) == ["Lunch with Poppy", "Dentist", "Standup"]
+
+
+def test_blank_and_comma_only_filters_change_nothing() -> None:
+    """An empty term must not match every event and empty the agenda."""
+    for value in ("", "   ", ",", " , , "):
+        assert len(_titles(_run({"hide_keywords": value}))) == 3
+
+
+def test_only_keywords_restricts_to_matches() -> None:
+    assert _titles(_run({"only_keywords": "standup"})) == ["Standup"]
+
+
+def test_only_and_hide_combine() -> None:
+    """An event must match "only" and must not match "hide"."""
+    out = _run({"only_keywords": "cafe rosa", "hide_keywords": "lunch"})
+    assert _titles(out) == ["Standup"]

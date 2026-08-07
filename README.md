@@ -26,6 +26,10 @@ Make sure you have at least one feed configured in **Widgets → Calendar Feeds*
 
 - **Days to show**: today only, 3 days, 5 days, a week, or two weeks.
 - **Feed IDs**: restrict to specific feeds (comma-separated). Blank includes every enabled feed.
+- **Hide events matching**: comma-separated words; any event whose title or location contains one is dropped. Case-insensitive and matches part of a word, so `lunch` hides "Lunch with Poppy". Useful for a recurring event you don't need on the panel.
+- **Only show events matching**: the inverse, for when it's easier to say what you want than what you don't. Blank shows everything. Hide words still apply on top, so an event has to match this list and avoid that one.
+
+  Both lists match against what the panel actually shows: with **Show event locations** off, locations aren't matched either, so a filter can't drop events for reasons you can't see on the screen.
 - **Show event locations**: toggles the lighter-grey location text after the title.
 - **Show per-feed colour dot**: turn off for pure typography (useful on 1-bit panels).
 - **Time format**: Auto, 24-hour, or 12-hour.

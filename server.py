@@ -27,6 +27,26 @@ def _parse_feeds_filter(s: str) -> list[str] | None:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
+def _parse_keywords(s: str) -> list[str]:
+    """Comma-separated keywords, lowercased for case-insensitive matching.
+
+    Blank entries are dropped so a trailing comma or a stray ", ," can't
+    produce an empty term, which would otherwise match every event and
+    silently empty the agenda."""
+    return [k.strip().lower() for k in (s or "").split(",") if k.strip()]
+
+
+def _matches_keyword(row: dict[str, Any], keywords: list[str]) -> bool:
+    """Whether an event's title or location contains any keyword.
+
+    Substring rather than whole-word: the request is to hide a recurring
+    "Lunch with Poppy" by typing "Lunch", and people expect a fragment to
+    work. Location is included so a filter can drop everything at a given
+    place without listing each event."""
+    haystack = f"{row.get('summary') or ''} {row.get('location') or ''}".lower()
+    return any(k in haystack for k in keywords)
+
+
 def _resolve_local_tz() -> ZoneInfo:
     """Read settings.app.timezone and return a ZoneInfo.
 
@@ -124,6 +144,8 @@ def fetch(
         except (TypeError, ValueError):
             days_ahead = 5
     feeds_filter = _parse_feeds_filter(options.get("feeds_filter") or "")
+    hide_keywords = _parse_keywords(options.get("hide_keywords") or "")
+    only_keywords = _parse_keywords(options.get("only_keywords") or "")
     show_location = bool(options.get("show_location", True))
     show_dot_color = bool(options.get("show_dot_color", True))
     time_format = (options.get("time_format") or "auto").strip().lower()
@@ -235,6 +257,16 @@ def fetch(
         }
         if show_location and ev.get("location"):
             row["location"] = ev.get("location")
+
+        # Keyword filters. Matched against the event as the operator sees it,
+        # so a location only counts when locations are being shown; filtering
+        # on text that isn't on the panel would look like events vanishing for
+        # no reason. "Only" wins over "hide" being empty: with both set, an
+        # event must match "only" and must not match "hide".
+        if only_keywords and not _matches_keyword(row, only_keywords):
+            continue
+        if hide_keywords and _matches_keyword(row, hide_keywords):
+            continue
         if not all_day:
             row["start_local"] = _local_time_iso(sdt, tz)
             row["end_local"] = _local_time_iso(edt, tz)
