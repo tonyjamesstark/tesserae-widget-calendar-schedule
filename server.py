@@ -160,30 +160,6 @@ def fetch(
         max_total = 0
     show_title = bool(options.get("show_title", True))
 
-    def _coerce_scale(name: str, default: float, lo: float, hi: float) -> float:
-        try:
-            v = float(options.get(name) if options.get(name) not in (None, "") else default)
-        except (TypeError, ValueError):
-            v = default
-        return max(lo, min(hi, v))
-
-    event_title_scale = _coerce_scale("event_title_scale", 1.0, 0.7, 1.5)
-    event_time_scale = _coerce_scale("event_time_scale", 1.0, 0.7, 1.5)
-    event_location_scale = _coerce_scale("event_location_scale", 0.9, 0.6, 1.3)
-    day_row_padding_em = _coerce_scale("day_row_padding_em", 0.5, 0.0, 1.5)
-    # ``columns`` accepts the string "auto" (client grows 1..4 until the
-    # list fits) or an integer 1..4 (fixed count). Anything else falls
-    # back to auto.
-    raw_columns = str(options.get("columns") or "auto").strip().lower()
-    if raw_columns == "auto":
-        columns: int | str = "auto"
-    else:
-        try:
-            n = int(raw_columns)
-        except ValueError:
-            n = 1
-        columns = max(1, min(4, n))
-
     tz = _resolve_local_tz()
     now_local = datetime.now(tz)
     # Pad the window by a day on each end to catch:
@@ -334,11 +310,6 @@ def fetch(
         "show_location": show_location,
         "show_dot_color": show_dot_color,
         "show_title": show_title,
-        "columns": columns,
-        "event_title_scale": event_title_scale,
-        "event_time_scale": event_time_scale,
-        "event_location_scale": event_location_scale,
-        "day_row_padding_em": day_row_padding_em,
         "days": days_out,
         "count": sum(len(d["events"]) for d in days_out),
         "truncated": truncated,

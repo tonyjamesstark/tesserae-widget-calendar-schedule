@@ -362,49 +362,28 @@ def test_skip_empty_days_off_keeps_blank_buckets() -> None:
         assert d["events"] == []
 
 
-def test_columns_defaults_to_auto_and_survives_round_trip() -> None:
-    """v0.4.0: ``columns`` defaults to ``"auto"``. The client grows the
-    column count 1..4 until the list fits; a fixed integer 1..4 skips
-    that fit-loop and pins the layout. The server echoes the resolved
-    value back so the client knows which mode to run in."""
+def test_fetch_does_not_forward_columns_or_scale_options() -> None:
+    """``columns`` normalization (auto vs clamped 1..4) and the
+    event_title_scale / event_time_scale / event_location_scale /
+    day_row_padding_em sliders moved to client.js's normalizeColumns /
+    clampScale (see tests/clamp_check.mjs) — ctx.cell.options already
+    carries these raw, unclamped, to the browser, so fetch() no longer
+    computes or forwards them."""
     app, _registry, _core, _settings = _stub_app()
     with patch.object(server, "current_app", app):
-        default_out = server.fetch(options={}, settings={}, ctx={})
-        auto_out = server.fetch(options={"columns": "auto"}, settings={}, ctx={})
-        two_col_out = server.fetch(options={"columns": "2"}, settings={}, ctx={})
-        four_col_out = server.fetch(options={"columns": 4}, settings={}, ctx={})
-    assert default_out["columns"] == "auto"
-    assert auto_out["columns"] == "auto"
-    assert two_col_out["columns"] == 2
-    assert four_col_out["columns"] == 4
-
-
-def test_columns_clamped_to_one_to_four() -> None:
-    """Out-of-range or bad values fall through to the nearest valid
-    bound (numeric) or auto (empty). Users can't crash the widget by
-    typing ``9`` or ``"lots"`` in the picker."""
-    app, _registry, _core, _settings = _stub_app()
-    with patch.object(server, "current_app", app):
-        assert (
-            server.fetch(options={"columns": "9"}, settings={}, ctx={})["columns"] == 4
+        out = server.fetch(
+            options={"columns": "2", "event_title_scale": 9},
+            settings={},
+            ctx={},
         )
-        assert (
-            server.fetch(options={"columns": "0"}, settings={}, ctx={})["columns"] == 1
-        )
-        assert (
-            server.fetch(options={"columns": "lots"}, settings={}, ctx={})["columns"]
-            == 1
-        )
-        # None / missing value falls through to auto (the default), not 1.
-        assert (
-            server.fetch(options={"columns": None}, settings={}, ctx={})["columns"]
-            == "auto"
-        )
-        # Case-insensitive AUTO string; some UIs echo the option label back.
-        assert (
-            server.fetch(options={"columns": "AUTO"}, settings={}, ctx={})["columns"]
-            == "auto"
-        )
+    for key in (
+        "columns",
+        "event_title_scale",
+        "event_time_scale",
+        "event_location_scale",
+        "day_row_padding_em",
+    ):
+        assert key not in out
 
 
 def test_missing_calendar_core_surfaces_error() -> None:

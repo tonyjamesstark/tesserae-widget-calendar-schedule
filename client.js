@@ -10,11 +10,60 @@
 // truncating, so the widget stays legible at 3 to 4 columns on wide
 // e-ink panels. Days flow column-first via CSS multi-column.
 
+// Clamps a cell-option slider value, defaulting on missing/non-numeric
+// input. Ported from server.py's _coerce_scale — server.py used to clamp
+// event_title_scale / event_time_scale / event_location_scale /
+// day_row_padding_em before sending them down; now the raw slider value
+// comes straight through in ctx.cell.options and this does the clamping
+// client-side instead.
+// date_label_style cell option: "short" (default, server-provided
+// 3-letter labels as-is), "minimal" (1-2 chars), or "full" (whole word,
+// via the *_FULL lookup maps below since the server only ever sends
+// the short form).
+const DOW_MINIMAL = { SUN: "SU", MON: "M", TUE: "TU", WED: "W", THU: "TH", FRI: "F", SAT: "SA" };
+const MONTH_MINIMAL = { JAN: "JA", FEB: "F", MAR: "MR", APR: "AP", MAY: "MY", JUN: "JN", JUL: "JL", AUG: "AU", SEP: "S", OCT: "O", NOV: "N", DEC: "D" };
+const DOW_FULL = { SUN: "Sunday", MON: "Monday", TUE: "Tuesday", WED: "Wednesday", THU: "Thursday", FRI: "Friday", SAT: "Saturday" };
+const MONTH_FULL = { JAN: "January", FEB: "February", MAR: "March", APR: "April", MAY: "May", JUN: "June", JUL: "July", AUG: "August", SEP: "September", OCT: "October", NOV: "November", DEC: "December" };
+
+export function styleShortLabel(label, style, minimalMap, fullMap) {
+  if (style === "minimal") return minimalMap[label] || label.slice(0, 2);
+  if (style === "full") return (fullMap && fullMap[label]) || label;
+  return label;
+}
+
+export function clampScale(raw, def, lo, hi) {
+  const v = raw === null || raw === undefined || raw === "" ? def : Number(raw);
+  return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+}
+
+// "auto" (client grows 1..4 until the list fits) or an integer 1..4
+// (fixed count). Anything else falls back to auto. Ported from
+// server.py's raw_columns handling.
+export function normalizeColumns(raw) {
+  const s = String(raw ?? "auto").trim().toLowerCase();
+  if (s === "auto") return "auto";
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? Math.max(1, Math.min(4, n)) : 1;
+}
+
+// Cell options live at ctx.cell.options (see docs/widgets.md's ctx shape),
+// not top-level ctx.options. Named + exported so a regression back to the
+// wrong path is a one-line, testable fact instead of silently no-op-ing
+// every option this file itself reads from it (columns, the scale
+// sliders, date_label_style) — the bug this shipped with for a while.
+// Options server.py consumes directly (show_location, show_dot_color,
+// time_format, skip_empty_days, max_events_per_day/total, show_title)
+// were never affected; those never went through ctx.cell.options.
+export function readOptions(ctx) {
+  return (ctx && ctx.cell && ctx.cell.options) || {};
+}
+
 export default function render(shadow, ctx) {
   const data = (ctx && ctx.data) || {};
+  const options = readOptions(ctx);
   const fontFamily = (ctx && ctx.font && ctx.font.family) || "Archivo, system-ui, sans-serif";
-  shadow.innerHTML = layout(data, fontFamily);
-  if (isAutoColumns(data)) {
+  shadow.innerHTML = layout(data, options, fontFamily);
+  if (isAutoColumns(options)) {
     scheduleAutoColumns(shadow);
   } else {
     // Fixed-column path still needs the continuation-header pass so a
@@ -110,8 +159,8 @@ function ensureContinuationHeaders(shadow) {
   });
 }
 
-function isAutoColumns(data) {
-  return typeof data?.columns === "string" && data.columns.toLowerCase() === "auto";
+function isAutoColumns(options) {
+  return normalizeColumns(options?.columns) === "auto";
 }
 
 // Overflow-driven column growth. Starts at 1 column and bumps up to 4
@@ -160,7 +209,7 @@ function fitColumns(shadow) {
   ensureContinuationHeaders(shadow);
 }
 
-function layout(data, fontFamily) {
+function layout(data, options, fontFamily) {
   if (data && data.time_format && String(data.time_format).toLowerCase() === "auto") {
     data = { ...data, time_format: "12h" };
   }
@@ -195,27 +244,30 @@ function layout(data, fontFamily) {
   // ``columns`` is either an integer 1..4 or the string "auto". Auto
   // renders with cols=1 initially; scheduleAutoColumns() bumps the
   // ``data-cols`` attribute up until content fits.
-  const rawCols = Number(data.columns);
-  const columns = Number.isFinite(rawCols)
-    ? Math.max(1, Math.min(4, Math.floor(rawCols)))
-    : 1;
+  const normCols = normalizeColumns(options.columns);
+  const columns = normCols === "auto" ? 1 : normCols;
   const showColour = data.show_dot_color !== false;
-  // v0.4.2: per-content-type sizing knobs. Numbers are already clamped
-  // server-side; the CSS custom props flow into rail-title / time-chip
-  // / rail-sub / day-row padding so the user's cell config drives what
+  // v0.4.2: per-content-type sizing knobs, clamped client-side (moved
+  // from server.py's _coerce_scale — options carries the raw slider
+  // value). The CSS custom props flow into rail-title / time-chip /
+  // rail-sub / day-row padding so the user's cell config drives what
   // feels tight vs spacious without touching the widget CSS.
-  const titleScale = numberOr(data.event_title_scale, 1.0);
-  const timeScale = numberOr(data.event_time_scale, 1.0);
-  const locScale = numberOr(data.event_location_scale, 0.9);
-  const rowPad = numberOr(data.day_row_padding_em, 0.5);
-  const styleAttr = `--title-scale:${titleScale};--time-scale:${timeScale};--loc-scale:${locScale};--row-pad:${rowPad}em;`;
+  const eventTitleScale = clampScale(options.event_title_scale, 1.0, 0.01, 10.0);
+  const timeScale = clampScale(options.event_time_scale, 1.0, 0.01, 10.0);
+  const locScale = clampScale(options.event_location_scale, 0.9, 0.01, 10.0);
+  const rowPad = clampScale(options.day_row_padding_em, 0.5, 0.0, 3.0);
+  const dashboardTitleScale = clampScale(options.title_scale, 1.0, 0.01, 10.0);
+  const headerScale = clampScale(options.header_scale, 1.0, 0.01, 10.0);
+  const labelStyle = ["short", "minimal", "full"].includes(options.date_label_style) ? options.date_label_style : "short";
+  const styleAttr = `--event-title-scale:${eventTitleScale};--time-scale:${timeScale};--loc-scale:${locScale};--row-pad:${rowPad}em;--dashboard-title-scale:${dashboardTitleScale};--header-scale:${headerScale};`;
+  const spans = allDaySpans(days);
   return `
     ${styles(fontFamily)}
     <div class="frame" data-cols="${columns}" style="${styleAttr}">
       ${titleHtml}
       <div class="body">
         <div class="days">
-          ${days.map((d) => renderDay(d, tf, showColour)).join("")}
+          ${days.map((d, i) => renderDay(d, tf, showColour, labelStyle, i, spans, days)).join("")}
         </div>
       </div>
     </div>
@@ -235,17 +287,42 @@ function renderTitle(truncated) {
   `;
 }
 
-function renderDay(day, timeFormat, showColour) {
+// The server spreads a multi-day all-day event into every covered day's
+// bucket (same summary/colour/location on each copy — there's no shared
+// id to dedupe by, so content equality is the key). Map each key to the
+// first and last day index it appears at so renderDay only shows the
+// label once, badged with the date it runs through.
+function allDaySpans(days) {
+  const first = new Map();
+  const last = new Map();
+  days.forEach((d, i) => {
+    (Array.isArray(d.events) ? d.events : [])
+      .filter((e) => e && e.all_day === true)
+      .forEach((ev) => {
+        const key = allDaySpanKey(ev);
+        if (!first.has(key)) first.set(key, i);
+        last.set(key, i);
+      });
+  });
+  return { first, last };
+}
+
+function allDaySpanKey(ev) {
+  return `${ev.summary}|${ev.colour || ""}|${ev.location || ""}`;
+}
+
+function renderDay(day, timeFormat, showColour, labelStyle, dayIndex, spans, allDays) {
   const events = Array.isArray(day.events) ? day.events : [];
-  const allDay = events.filter((e) => e && e.all_day === true);
+  const allDayHere = events.filter((e) => e && e.all_day === true);
+  const allDay = allDayHere.filter((e) => spans.first.get(allDaySpanKey(e)) === dayIndex);
   const timed = events.filter((e) => e && e.all_day !== true);
   const allDayHtml = allDay.length
-    ? `<div class="all-day-stack">${allDay.map((e) => renderAllDay(e, showColour)).join("")}</div>`
+    ? `<div class="all-day-stack">${allDay.map((e) => renderAllDay(e, showColour, spans, allDays, dayIndex)).join("")}</div>`
     : "";
   const timedHtml = timed.length
     ? `<div class="rail">${timed.map((e) => renderTimed(e, timeFormat, showColour)).join("")}</div>`
     : "";
-  const empty = !allDay.length && !timed.length
+  const empty = !allDayHere.length && !timed.length
     ? `<div class="day-empty">(no events)</div>`
     : "";
   const todayClass = day.is_today ? " is-today" : "";
@@ -258,8 +335,8 @@ function renderDay(day, timeFormat, showColour) {
     <section class="day${todayClass}" data-day-id="${dayId}">
       <header class="day-header" data-day-header>
         <span class="day-num">${escapeHtml(String(day.day_of_month ?? ""))}</span>
-        <span class="day-dow">${escapeHtml(day.day_of_week_short || "")}</span>
-        <span class="day-month">${escapeHtml(day.month_short || "")}</span>
+        <span class="day-dow">${escapeHtml(styleShortLabel(day.day_of_week_short || "", labelStyle, DOW_MINIMAL, DOW_FULL))}</span>
+        <span class="day-month">${escapeHtml(styleShortLabel(day.month_short || "", labelStyle, MONTH_MINIMAL, MONTH_FULL))}</span>
       </header>
       ${allDayHtml}
       ${timedHtml}
@@ -268,14 +345,20 @@ function renderDay(day, timeFormat, showColour) {
   `;
 }
 
-function renderAllDay(ev, showColour) {
+function renderAllDay(ev, showColour, spans, allDays, dayIndex) {
   const title = escapeHtml(ev.summary || "(untitled)");
   const bg = showColour && ev.colour ? ev.colour : "var(--text-primary, #1B1A16)";
   const styleAttr = `style="background:${escapeAttr(bg)}"`;
+  const lastIndex = spans.last.get(allDaySpanKey(ev));
+  const lastDay = lastIndex > dayIndex ? allDays[lastIndex] : null;
+  const spanBadge = lastDay
+    ? `<span class="all-day-span">&rarr; ${escapeHtml(styleShortLabel(lastDay.month_short || "", "short", MONTH_MINIMAL, MONTH_FULL))} ${escapeHtml(String(lastDay.day_of_month ?? ""))}</span>`
+    : "";
   return `
     <div class="all-day" ${styleAttr}>
       <span class="all-day-label">ALL DAY</span>
       <span class="all-day-title">${title}</span>
+      ${spanBadge}
     </div>
   `;
 }
@@ -321,11 +404,6 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function numberOr(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function styles(fontFamily) {
   return `
     <style>
@@ -346,11 +424,13 @@ function styles(fontFamily) {
         padding: clamp(10px, 2cqmin, 18px);
         display: flex;
         flex-direction: column;
-        /* Container-query base size. Reference targets at an 800px min
-           cell dimension: cols 1->19px, 2->17px, 3->16px, 4->15px. The
-           14-22px clamp keeps the widget legible across the range of
-           cell sizes Tesserae ships. */
-        font-size: clamp(14px, calc(var(--f-scale, 2.4) * 1cqmin), 22px);
+        /* Anchored to the same --w-font-base every other Spectra widget
+           uses (spectra-tokens.css), so this widget's text tracks the
+           shared fluid-size baseline instead of inventing its own. The
+           /2.4 ratio keeps the existing per-column shrink (cols
+           1->base, 2->0.875x, 3->0.833x, 4->0.771x) since 2.4 was the
+           1-column baseline of the old formula. */
+        font-size: calc(var(--w-font-base, clamp(14px, 7cqmin, 28px)) * var(--f-scale, 2.4) / 2.4);
         line-height: 1.2;
       }
       .frame[data-cols="1"] { --f-scale: 2.4; }
@@ -366,7 +446,7 @@ function styles(fontFamily) {
         padding: 0 0 0.4em 0;
         margin-bottom: 0.5em;
         border-bottom: 2px solid var(--border, #E5E1D6);
-        font-size: 0.78em;
+        font-size: calc(0.78em * var(--dashboard-title-scale, 1));
         font-weight: 800;
         letter-spacing: 0.09em;
         text-transform: uppercase;
@@ -489,7 +569,7 @@ function styles(fontFamily) {
         padding-bottom: 0.15em;
       }
       .day-num {
-        font-size: 2.3em;
+        font-size: calc(2.3em * var(--header-scale, 1));
         font-weight: 800;
         line-height: 0.82;
       }
@@ -497,13 +577,13 @@ function styles(fontFamily) {
         color: var(--accent-1, var(--accent, #C24F2C));
       }
       .day-dow {
-        font-size: 0.95em;
+        font-size: calc(0.95em * var(--header-scale, 1));
         font-weight: 800;
         letter-spacing: 0.06em;
       }
       .day-month {
         margin-left: auto;
-        font-size: 0.78em;
+        font-size: calc(0.78em * var(--header-scale, 1));
         font-weight: 700;
         color: var(--text-muted, var(--muted, #8A8678));
       }
@@ -534,6 +614,12 @@ function styles(fontFamily) {
         opacity: 0.85;
         flex: 0 0 auto;
       }
+      .all-day-span {
+        font-size: 0.72em;
+        opacity: 0.85;
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
       .all-day-title {
         flex: 1 1 auto;
         /* .all-day sets font-size:0.82em to keep the ALL DAY pill + row
@@ -541,7 +627,7 @@ function styles(fontFamily) {
            .rail-title at the same slider value (issue #4). Divide the 0.82
            back out so the title matches timed event titles exactly, while the
            pill and padding stay compact. */
-        font-size: calc(1em / 0.82 * var(--title-scale, 1));
+        font-size: calc(1em / 0.82 * var(--event-title-scale, 1));
         text-overflow: ellipsis;
         overflow: hidden;
       }
@@ -609,7 +695,7 @@ function styles(fontFamily) {
         font-weight: 800;
         line-height: 1.14;
         overflow-wrap: break-word;
-        font-size: calc(1em * var(--title-scale, 1));
+        font-size: calc(1em * var(--event-title-scale, 1));
       }
       .rail-sub {
         font-size: calc(0.72em * var(--loc-scale, 0.9) / 0.9);
@@ -630,6 +716,32 @@ function styles(fontFamily) {
         font-size: 0.85em;
         color: var(--text-muted, var(--muted, #8A8678));
         margin-top: 0.4em;
+      }
+
+      /* xs / sm support: multi-column agenda doesn't fit a 180-400px
+         wide cell, so force single column regardless of the JS-computed
+         data-cols, and drop secondary content the way calendar_day /
+         calendar_three_day already do at the same breakpoints. */
+      @container (max-width: 400px) {
+        .days { column-count: 1 !important; }
+      }
+      @container (max-width: 360px) {
+        .title-pill { display: none; }
+        .rail-sub { display: none; }
+        .day-month { display: none; }
+        .all-day-label { display: none; }
+      }
+      @container (max-width: 240px) {
+        .title { display: none; }
+        .day-dow { display: none; }
+        .day-num { font-size: 1.6em; }
+        .rail-spine, .rail-node { display: none; }
+        .rail-content { padding-left: 0; }
+        .time-gutter { min-width: 2.4em; }
+        /* Cap visible rows per day so a busy day doesn't blow out the
+           tiny cell's height; matches the widgets.md convention of
+           trimming list rows per size rather than shrinking every row. */
+        .rail-row:nth-child(n+4) { display: none; }
       }
 
       .notice {
