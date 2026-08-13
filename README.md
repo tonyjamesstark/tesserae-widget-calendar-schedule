@@ -32,12 +32,19 @@ Make sure you have at least one feed configured in **Widgets → Calendar Feeds*
   Both lists match against what the panel actually shows: with **Show event locations** off, locations aren't matched either, so a filter can't drop events for reasons you can't see on the screen.
 - **Show event locations**: toggles the lighter-grey location text after the title.
 - **Show per-feed colour dot**: turn off for pure typography (useful on 1-bit panels).
+- **Use symbol dots**: replaces the round bullet on each timed event with a shape picked from the feed colour, so two calendars stay apart once the panel has quantised both to the same ink. Off by default.
 - **Time format**: Auto, 24-hour, or 12-hour.
 - **Skip days with no events**: when off, every day in the window renders even if empty.
 - **Max events per day**: cap each day's row count (0 = show all).
 - **Layout columns**: flow the agenda across 1 to 4 vertical columns so a longer window (say two weeks) fits in a half-height cell without shrinking every row. Defaults to **Auto**, which starts at 1 and grows the column count only until the whole list fits; pick a fixed count (1-4) if you want to lock the layout. Days stay atomic (never split across columns); the browser packs by real content height, not day count.
 
 Feed colour is carried by the start-time chip and the all-day bar. Turning off **Show per-feed colour dot** replaces the chip fill with ink for 1-bit panels.
+
+**Use symbol dots** sorts each feed colour into one of 19 buckets (3 greyscale levels, then 8 hue slices each split by saturation) and draws that bucket's shape. Hollow shapes are the washed-out half of each hue, solid the vivid half.
+
+Two colours in the same bucket get the same shape. The slices are 45 degrees wide, so the first one covers red through orange to yellow: on the stock Google Calendar palette that puts Tomato, Tangerine and Banana together, and the 11 stock colours resolve to 8 distinct shapes. If you're relying on this, set feed colours that sit well apart on the wheel rather than picking three warm ones.
+
+All-day events render as a filled bar rather than a rail node, so they aren't affected. Turning off **Show per-feed colour dot** drops the colour before the client sees it, which collapses every symbol back to the plain bullet.
 
 ### Sensible column defaults per panel
 

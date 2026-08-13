@@ -58,6 +58,23 @@ export function readOptions(ctx) {
   return (ctx && ctx.cell && ctx.cell.options) || {};
 }
 
+// -- symbol dots (v0.6.0) --------------------------------------------------
+// A 1-bit panel quantises every feed colour to the same ink, so the rail
+// node can't tell two calendars apart. use_symbol_dot swaps the bullet for
+// a shape picked from the feed colour, which survives dithering.
+
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+
+// What an unusable feed colour falls back to, and what the rail draws when
+// the option is off: the bullet this widget has always used. It doubles as
+// the vivid-red glyph below, which only collides if a feed colour is
+// unparseable, and that already means the symbol carries no information.
+export const FALLBACK_SYMBOL = "●";
+
+// #rrggbb -> {hue: 0-360, sat: 0-1, val: 0-1}. Callers must pre-validate
+// with HEX6; a short or malformed hex would parse to NaN and poison every
+// comparison downstream (NaN < x and NaN >= x are both false, so the
+// bucket maths silently lands on an out-of-range index).
 function toHSV(hex) {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -79,38 +96,55 @@ function toHSV(hex) {
   const s = max === 0 ? 0 : delta / max;
   const v = max;
 
-  return { hue:h, sat:s, val:v };
+  return { hue: h, sat: s, val: v };
 }
 
 const HUE_BUCKETS = 8;
-const SAT_THRESHOLD = 0.5;   // >= this is "high saturation"
-const GRAY_SAT_THRESHOLD = 0.04; // below this, treat as grayscale regardless of hue
-const GRAY_LEVELS = 3;       // e.g. dark / mid / light gray
-const DEFAULT_SYMBOLS = ["●","◆","▲","◆","▼","◖","◗","■","⨁","§","▢","◀","▶","◇","▽","◩","≪","≫"];
-const COLOR_NAMES = ["Black","Grey","White",
-"Light Red","Light Amber","Light Yellow-Green","Light Green",
-"Light Cyan","Light Blue","Light Purple","Light Megenta",
-"Red","Amber","Yellow-Green","Green",
-"Cyan","Blue","Purple","Megenta"];
+const SAT_THRESHOLD = 0.5; // above this is "high saturation"
+const GRAY_SAT_THRESHOLD = 0.04; // below this, treat as greyscale regardless of hue
+const GRAY_LEVELS = 3; // dark / mid / light grey
+// GRAY_LEVELS + HUE_BUCKETS * 2 = 19 buckets, so SYMBOLS and BUCKET_NAMES
+// must both be 19 long with no repeats: a duplicate or a short array makes
+// two different feeds share a glyph, which is the one thing this option
+// exists to prevent. tests/clamp_check.mjs asserts the invariant.
+// Hollow shapes are the low-saturation half of each hue, solid the high,
+// so a washed-out feed reads lighter than a vivid one at a glance.
+const SYMBOLS = [
+  "█", "▒", "░",
+  "○", "□", "△", "▽", "◇", "☆", "◁", "▷",
+  "●", "■", "▲", "▼", "◆", "★", "◀", "▶",
+];
+const BUCKET_NAMES = [
+  "Black", "Grey", "White",
+  "Light Red", "Light Amber", "Light Yellow-Green", "Light Green",
+  "Light Cyan", "Light Blue", "Light Purple", "Light Magenta",
+  "Red", "Amber", "Yellow-Green", "Green",
+  "Cyan", "Blue", "Purple", "Magenta",
+];
 
-
-function colorBucket(hex) {
+// #rrggbb -> 0..18. 0-2 greyscale by lightness, 3-10 low-saturation hues,
+// 11-18 the same hues at high saturation.
+export function colorBucket(hex) {
   const hsv = toHSV(hex);
 
-  // If it's unsaturated, return 0-2
   if (hsv.sat < GRAY_SAT_THRESHOLD) {
-    const level = Math.min(GRAY_LEVELS - 1, Math.floor(hsv.val * GRAY_LEVELS));
-    return level;
+    return Math.min(GRAY_LEVELS - 1, Math.floor(hsv.val * GRAY_LEVELS));
   }
 
-  // Return 3-10 for unsat, 11-18 for high-sat
   const hueBucket = Math.floor(hsv.hue / (360 / HUE_BUCKETS)) % HUE_BUCKETS;
-  return GRAY_LEVELS + hueBucket + (hsv.sat <= SAT_THRESHOLD ? 0 : 8);
+  return GRAY_LEVELS + hueBucket + (hsv.sat <= SAT_THRESHOLD ? 0 : HUE_BUCKETS);
 }
 
-function colorToSymbol(hex) {
-  return DEFAULT_SYMBOLS[colorBucket(hex) % DEFAULT_SYMBOLS.length];
+// Feed colours are written by calendar_core, which validates them as
+// #rrggbb, but a hand-edited feed store can still carry a short hex or a
+// colour name. Fall back to the plain bullet rather than rendering the
+// string "undefined" into the rail.
+export function colorToSymbol(hex) {
+  if (typeof hex !== "string" || !HEX6.test(hex)) return FALLBACK_SYMBOL;
+  return SYMBOLS[colorBucket(hex)];
 }
+
+export const SYMBOL_TABLE = { symbols: SYMBOLS, names: BUCKET_NAMES };
 
 export default function render(shadow, ctx) {
   const data = (ctx && ctx.data) || {};
@@ -301,7 +335,9 @@ function layout(data, options, fontFamily) {
   const normCols = normalizeColumns(options.columns);
   const columns = normCols === "auto" ? 1 : normCols;
   const showColour = data.show_dot_color !== false;
-  const useSymbol = data.use_symbol_dot !== false;
+  // Defaults off (see plugin.json), so this reads === true rather than the
+  // !== false the default-on flags above use.
+  const useSymbol = data.use_symbol_dot === true;
   // v0.4.2: per-content-type sizing knobs, clamped client-side (moved
   // from server.py's _coerce_scale — options carries the raw slider
   // value). The CSS custom props flow into rail-title / time-chip /
@@ -423,7 +459,9 @@ function renderTimed(ev, timeFormat, showColour, useSymbol) {
   const startChip = formatChipLabel(ev.start_local, timeFormat);
   const endLabel = formatChipLabel(ev.end_local, timeFormat);
   const bg = showColour && ev.colour ? ev.colour : "var(--text-primary, #1B1A16)";
-  const hex_color = ev.colour ? ev.colour : "#1B1A16";
+  // ev.colour is already None-ed out server-side when show_dot_color is off,
+  // so the symbols collapse to the fallback bullet along with the chip fill.
+  const node = useSymbol ? colorToSymbol(ev.colour) : FALLBACK_SYMBOL;
   const chipStyle = `style="background:${escapeAttr(bg)}"`;
   const sub = endLabel
     ? `until ${escapeHtml(endLabel)}${ev.location ? ` · ${escapeHtml(ev.location)}` : ""}`
@@ -433,7 +471,7 @@ function renderTimed(ev, timeFormat, showColour, useSymbol) {
       <div class="time-gutter">
         <span class="time-chip" ${chipStyle}>${escapeHtml(startChip || "")}</span>
       </div>
-      <div class="rail-spine"><span class="rail-node">${useSymbol ? colorToSymbol(hex_color) : "●"}</span></div>
+      <div class="rail-spine"><span class="rail-node">${node}</span></div>
       <div class="rail-content">
         <div class="rail-title">${title}</div>
         ${sub ? `<div class="rail-sub">${sub}</div>` : ""}
@@ -726,14 +764,25 @@ function styles(fontFamily) {
         background: var(--border, #E5E1D6);
         position: relative;
       }
+      /* v0.6.0: the node is a glyph rather than a CSS circle, so the old
+         2px --surface border that used to knock the spine out from behind
+         the dot is gone. The --surface background does that job instead,
+         otherwise the spine draws straight through the hollow shapes. The
+         box is sized in em and centred with a 1px nudge for the spine's
+         own width, so it stays on the rail as the title-scale slider moves.
+         The font stack is pinned because the theme face may not carry the
+         geometric shapes, and a missing glyph renders as tofu. */
       .rail-node {
         position: absolute;
-        left: -0.5em;
+        left: calc(-0.5em + 1px);
         top: 0.1em;
         width: 1em;
-        height: 10px;
+        height: 1em;
+        line-height: 1;
         text-align: center;
-        box-sizing: content-box;
+        background: var(--surface, #FCFBF7);
+        font-family: "DejaVu Sans", "Noto Sans Symbols 2", "Segoe UI Symbol", sans-serif;
+        font-size: 0.9em;
       }
       .rail-content {
         flex: 1 1 0;

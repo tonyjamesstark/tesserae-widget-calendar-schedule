@@ -301,6 +301,20 @@ def test_show_dot_color_off_omits_colour() -> None:
     assert out["days"][0]["events"][0]["colour"] is None
 
 
+def test_use_symbol_dot_defaults_off_and_is_forwarded() -> None:
+    """The client picks a per-colour glyph for the rail node only when this
+    is on. It defaults off, and the client reads it as ``=== True``, so the
+    key has to be in the payload either way."""
+    app, _registry, _core, _settings = _stub_app()
+    with patch.object(server, "current_app", app):
+        default_out = server.fetch(options={"days_ahead": "1"}, settings={}, ctx={})
+        on_out = server.fetch(
+            options={"days_ahead": "1", "use_symbol_dot": True}, settings={}, ctx={}
+        )
+    assert default_out["use_symbol_dot"] is False
+    assert on_out["use_symbol_dot"] is True
+
+
 def test_show_location_off_drops_location_field() -> None:
     app, _registry, core, _settings = _stub_app()
     core.server_module.load_events.return_value = [

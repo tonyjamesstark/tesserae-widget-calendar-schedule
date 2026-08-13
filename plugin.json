@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Calendar, Schedule",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "kind": "widget",
   "description": "Timeline-rail agenda view. Lists upcoming events grouped by day, with a thin ink rail connecting per-event nodes and a coloured start-time chip carrying the feed accent. Titles wrap freely so the widget stays legible from 1 up to 4 narrow columns on wide e-ink panels. Pulls from the same calendar_core feeds as the other calendar_* widgets.",
   "icon": "ph-list-bullets",
@@ -129,9 +129,9 @@
     {
       "name": "use_symbol_dot",
       "type": "boolean",
-      "label": "Use symbols for dots",
+      "label": "Use symbol dots",
       "default": false,
-      "help": "Replaces bullets with symbols based on event color (helpful for B&W displays)"
+      "help": "Replaces the round bullet with a shape picked from the feed colour, so feeds stay apart on 1-bit panels."
     },
     {
       "name": "time_format",
