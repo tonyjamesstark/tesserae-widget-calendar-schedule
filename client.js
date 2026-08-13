@@ -58,6 +58,60 @@ export function readOptions(ctx) {
   return (ctx && ctx.cell && ctx.cell.options) || {};
 }
 
+function toHSV(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+
+  const s = max === 0 ? 0 : delta / max;
+  const v = max;
+
+  return { hue:h, sat:s, val:v };
+}
+
+const HUE_BUCKETS = 8;
+const SAT_THRESHOLD = 0.5;   // >= this is "high saturation"
+const GRAY_SAT_THRESHOLD = 0.04; // below this, treat as grayscale regardless of hue
+const GRAY_LEVELS = 3;       // e.g. dark / mid / light gray
+const DEFAULT_SYMBOLS = ["●","◆","▲","◆","▼","◖","◗","■","⨁","§","▢","◀","▶","◇","▽","◩","≪","≫"];
+const COLOR_NAMES = ["Black","Grey","White",
+"Light Red","Light Amber","Light Yellow-Green","Light Green",
+"Light Cyan","Light Blue","Light Purple","Light Megenta",
+"Red","Amber","Yellow-Green","Green",
+"Cyan","Blue","Purple","Megenta"];
+
+
+function colorBucket(hex) {
+  const hsv = toHSV(hex);
+
+  // If it's unsaturated, return 0-2
+  if (hsv.sat < GRAY_SAT_THRESHOLD) {
+    const level = Math.min(GRAY_LEVELS - 1, Math.floor(hsv.val * GRAY_LEVELS));
+    return level;
+  }
+
+  // Return 3-10 for unsat, 11-18 for high-sat
+  const hueBucket = Math.floor(hsv.hue / (360 / HUE_BUCKETS)) % HUE_BUCKETS;
+  return GRAY_LEVELS + hueBucket + (hsv.sat <= SAT_THRESHOLD ? 0 : 8);
+}
+
+function colorToSymbol(hex) {
+  return DEFAULT_SYMBOLS[colorBucket(hex) % DEFAULT_SYMBOLS.length];
+}
+
 export default function render(shadow, ctx) {
   const data = (ctx && ctx.data) || {};
   const options = readOptions(ctx);
@@ -247,6 +301,7 @@ function layout(data, options, fontFamily) {
   const normCols = normalizeColumns(options.columns);
   const columns = normCols === "auto" ? 1 : normCols;
   const showColour = data.show_dot_color !== false;
+  const useSymbol = data.use_symbol_dot !== false;
   // v0.4.2: per-content-type sizing knobs, clamped client-side (moved
   // from server.py's _coerce_scale — options carries the raw slider
   // value). The CSS custom props flow into rail-title / time-chip /
@@ -267,7 +322,7 @@ function layout(data, options, fontFamily) {
       ${titleHtml}
       <div class="body">
         <div class="days">
-          ${days.map((d, i) => renderDay(d, tf, showColour, labelStyle, i, spans, days)).join("")}
+          ${days.map((d, i) => renderDay(d, tf, showColour, useSymbol, labelStyle, i, spans, days)).join("")}
         </div>
       </div>
     </div>
@@ -311,7 +366,7 @@ function allDaySpanKey(ev) {
   return `${ev.summary}|${ev.colour || ""}|${ev.location || ""}`;
 }
 
-function renderDay(day, timeFormat, showColour, labelStyle, dayIndex, spans, allDays) {
+function renderDay(day, timeFormat, showColour, useSymbol, labelStyle, dayIndex, spans, allDays) {
   const events = Array.isArray(day.events) ? day.events : [];
   const allDayHere = events.filter((e) => e && e.all_day === true);
   const allDay = allDayHere.filter((e) => spans.first.get(allDaySpanKey(e)) === dayIndex);
@@ -320,7 +375,7 @@ function renderDay(day, timeFormat, showColour, labelStyle, dayIndex, spans, all
     ? `<div class="all-day-stack">${allDay.map((e) => renderAllDay(e, showColour, spans, allDays, dayIndex)).join("")}</div>`
     : "";
   const timedHtml = timed.length
-    ? `<div class="rail">${timed.map((e) => renderTimed(e, timeFormat, showColour)).join("")}</div>`
+    ? `<div class="rail">${timed.map((e) => renderTimed(e, timeFormat, showColour, useSymbol)).join("")}</div>`
     : "";
   const empty = !allDayHere.length && !timed.length
     ? `<div class="day-empty">(no events)</div>`
@@ -363,11 +418,12 @@ function renderAllDay(ev, showColour, spans, allDays, dayIndex) {
   `;
 }
 
-function renderTimed(ev, timeFormat, showColour) {
+function renderTimed(ev, timeFormat, showColour, useSymbol) {
   const title = escapeHtml(ev.summary || "(untitled)");
   const startChip = formatChipLabel(ev.start_local, timeFormat);
   const endLabel = formatChipLabel(ev.end_local, timeFormat);
   const bg = showColour && ev.colour ? ev.colour : "var(--text-primary, #1B1A16)";
+  const hex_color = ev.colour ? ev.colour : "#1B1A16";
   const chipStyle = `style="background:${escapeAttr(bg)}"`;
   const sub = endLabel
     ? `until ${escapeHtml(endLabel)}${ev.location ? ` · ${escapeHtml(ev.location)}` : ""}`
@@ -377,7 +433,7 @@ function renderTimed(ev, timeFormat, showColour) {
       <div class="time-gutter">
         <span class="time-chip" ${chipStyle}>${escapeHtml(startChip || "")}</span>
       </div>
-      <div class="rail-spine"><span class="rail-node"></span></div>
+      <div class="rail-spine"><span class="rail-node">${useSymbol ? colorToSymbol(hex_color) : "●"}</span></div>
       <div class="rail-content">
         <div class="rail-title">${title}</div>
         ${sub ? `<div class="rail-sub">${sub}</div>` : ""}
@@ -672,13 +728,11 @@ function styles(fontFamily) {
       }
       .rail-node {
         position: absolute;
-        left: -4px;
-        top: 0.36em;
-        width: 10px;
+        left: -0.5em;
+        top: 0.1em;
+        width: 1em;
         height: 10px;
-        border-radius: 50%;
-        background: var(--text-primary, #1B1A16);
-        border: 2px solid var(--surface, #FCFBF7);
+        text-align: center;
         box-sizing: content-box;
       }
       .rail-content {

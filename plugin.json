@@ -127,6 +127,13 @@
       "help": "Off makes the layout pure typography; useful on 1-bit panels."
     },
     {
+      "name": "use_symbol_dot",
+      "type": "boolean",
+      "label": "Use symbols for dots",
+      "default": false,
+      "help": "Replaces bullets with symbols based on event color (helpful for B&W displays)"
+    },
+    {
       "name": "time_format",
       "type": "select",
       "label": "Time format",

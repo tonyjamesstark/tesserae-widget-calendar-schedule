@@ -148,6 +148,7 @@ def fetch(
     only_keywords = _parse_keywords(options.get("only_keywords") or "")
     show_location = bool(options.get("show_location", True))
     show_dot_color = bool(options.get("show_dot_color", True))
+    use_symbol_dot = bool(options.get("use_symbol_dot", False))
     time_format = (options.get("time_format") or "auto").strip().lower()
     skip_empty_days = bool(options.get("skip_empty_days", True))
     try:
@@ -309,6 +310,7 @@ def fetch(
         "time_format": time_format,
         "show_location": show_location,
         "show_dot_color": show_dot_color,
+        "use_symbol_dot": use_symbol_dot,
         "show_title": show_title,
         "days": days_out,
         "count": sum(len(d["events"]) for d in days_out),
