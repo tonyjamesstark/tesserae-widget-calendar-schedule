@@ -35,6 +35,7 @@ Make sure you have at least one feed configured in **Widgets → Calendar Feeds*
 - **Use symbol dots**: replaces the round bullet on each timed event with a shape picked from the feed colour, so two calendars stay apart once the panel has quantised both to the same ink. Off by default.
 - **Time format**: Auto, 24-hour, or 12-hour.
 - **Skip days with no events**: when off, every day in the window renders even if empty.
+- **Always show today**: keeps today's column even when it has no events, so the current date is always the first column. Only matters with **Skip days with no events** on.
 - **Max events per day**: cap each day's row count (0 = show all).
 - **Layout columns**: flow the agenda across 1 to 4 vertical columns so a longer window (say two weeks) fits in a half-height cell without shrinking every row. Defaults to **Auto**, which starts at 1 and grows the column count only until the whole list fits; pick a fixed count (1-4) if you want to lock the layout. Days stay atomic (never split across columns); the browser packs by real content height, not day count.
 
@@ -62,7 +63,7 @@ The multi-column flow reads column-first: day 1 top-left, day 2 below it, wrap t
 
 ## Layout
 
-Each day is a header (big day number + weekday, muted month right-aligned) with a thick ink underline, followed by any all-day events as coloured bars, then a timeline rail of timed events. Each timed event has a coloured start-time chip on the left, a rail-node dot on a 2px vertical spine, and a wrapping title with `until <end time> · <location>` beneath. Days stay atomic across columns (never split).
+Each day is a header (big day number + weekday, muted month right-aligned) with a thick ink underline, followed by any all-day events as coloured bars, then a timeline rail of timed events. A multi-day all-day event shows on every day it covers; the days it carries on past are badged with the date it ends (`→ AUG 20`). Each timed event has a coloured start-time chip on the left, a rail-node dot on a 2px vertical spine, and a wrapping title with `until <end time> · <location>` beneath. Days stay atomic across columns (never split).
 
 ```
 6  MON                                                   JUL

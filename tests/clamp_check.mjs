@@ -8,11 +8,13 @@ import assert from "node:assert/strict";
 import {
   FALLBACK_SYMBOL,
   SYMBOL_TABLE,
+  allDayEndBadge,
   clampScale,
   colorBucket,
   colorToSymbol,
   normalizeColumns,
   readOptions,
+  renderDay,
   styleShortLabel,
 } from "../client.js";
 
@@ -137,5 +139,45 @@ function hsvToHex(h, s, v) {
   const to8 = (n) => Math.round((n + m) * 255).toString(16).padStart(2, "0");
   return `#${to8(r)}${to8(g)}${to8(b)}`;
 }
+
+// allDayEndBadge: a multi-day all-day event is rendered on every day the
+// server bucketed it into; the badge marks the copies that carry on past
+// the day they sit under. It must NOT hide those copies (the bug where a
+// holiday showed only on its first day and left the rest blank).
+const holiday = { summary: "Holiday", end_date: "2026-08-20" };
+assert.equal(allDayEndBadge(holiday, "2026-08-18"), "AUG 20", "first day badges the end");
+assert.equal(allDayEndBadge(holiday, "2026-08-19"), "AUG 20", "middle day still badges the end");
+assert.equal(allDayEndBadge(holiday, "2026-08-20"), "", "last day of the span has nothing left to point at");
+assert.equal(allDayEndBadge(holiday, "2026-08-21"), "", "past the end (shouldn't happen) stays quiet");
+assert.equal(
+  allDayEndBadge({ summary: "Holiday", end_date: "2026-09-02" }, "2026-08-31"),
+  "SEP 2",
+  "crosses a month boundary"
+);
+assert.equal(allDayEndBadge({ summary: "Bin day" }, "2026-08-18"), "", "single-day event: no end_date, no badge");
+assert.equal(allDayEndBadge({ end_date: "" }, "2026-08-18"), "", "blank end_date");
+assert.equal(allDayEndBadge({ end_date: "junk" }, "2026-08-18"), "", "unparsable end_date");
+assert.equal(allDayEndBadge({ end_date: "2026-08-20" }, ""), "", "missing day date");
+
+// renderDay must paint an all-day bar on EVERY day the server bucketed
+// the event into — never the "(no events)" placeholder. The placeholder
+// showing up on a day that carries an all-day copy is the exact symptom
+// the span-dedupe caused.
+const middleDay = {
+  date_iso: "2026-08-19", day_of_month: 19, day_of_week_short: "WED", month_short: "AUG",
+  is_today: false,
+  events: [{ summary: "Public Holiday", all_day: true, colour: "#36c", end_date: "2026-08-20" }],
+};
+const middleHtml = renderDay(middleDay, "24h", true, false, "short");
+assert.match(middleHtml, /all-day-title">Public Holiday</, "middle day of a span still paints the bar");
+assert.match(middleHtml, /all-day-span">&rarr; AUG 20</, "and badges where it ends");
+assert.doesNotMatch(middleHtml, /day-empty/, "a day carrying an all-day event is never '(no events)'");
+
+const lastDayHtml = renderDay({ ...middleDay, date_iso: "2026-08-20" }, "24h", true, false, "short");
+assert.match(lastDayHtml, /all-day-title">Public Holiday</, "last day of a span paints the bar too");
+assert.doesNotMatch(lastDayHtml, /all-day-span/, "no badge once the span ends here");
+
+const emptyHtml = renderDay({ ...middleDay, events: [] }, "24h", true, false, "short");
+assert.match(emptyHtml, /day-empty/, "a genuinely empty day still says so");
 
 console.log("clamp_check.mjs: all assertions passed");

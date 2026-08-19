@@ -151,6 +151,7 @@ def fetch(
     use_symbol_dot = bool(options.get("use_symbol_dot", False))
     time_format = (options.get("time_format") or "auto").strip().lower()
     skip_empty_days = bool(options.get("skip_empty_days", True))
+    always_show_today = bool(options.get("always_show_today", False))
     try:
         max_per_day = max(0, int(options.get("max_events_per_day") or 0))
     except (TypeError, ValueError):
@@ -247,6 +248,13 @@ def fetch(
         if not all_day:
             row["start_local"] = _local_time_iso(sdt, tz)
             row["end_local"] = _local_time_iso(edt, tz)
+        else:
+            # Inclusive last local date the event covers. The client
+            # renders the event on every day it covers and badges the
+            # ones that continue ("-> AUG 20") off this. Deliberately
+            # the *true* end, not clamped to the window, so a holiday
+            # running past the last visible day still says so.
+            row["end_date"] = end_local_date.isoformat()
 
         # Spread the event across every day in its span that falls
         # inside the visible window. ``first_day`` is clamped to today
@@ -263,7 +271,7 @@ def fetch(
     for offset in range(days_ahead):
         d = today_local + timedelta(days=offset)
         items = buckets.get(d) or []
-        if skip_empty_days and not items:
+        if skip_empty_days and not items and not (always_show_today and d == today_local):
             continue
         # All-day events first, then chronological by start.
         items.sort(key=lambda r: (not r["all_day"], r.get("start_local") or ""))

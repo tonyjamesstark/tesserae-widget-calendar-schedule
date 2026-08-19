@@ -181,6 +181,48 @@ def test_multi_day_all_day_event_spans_every_day_it_covers() -> None:
     assert out["count"] == 3
 
 
+def test_all_day_rows_carry_true_end_date() -> None:
+    """Every copy of a multi-day all-day event carries ``end_date``: the
+    inclusive last local date, identical on each copy and NOT clamped to
+    the visible window. The client renders the event on each covered day
+    and badges the ones that carry on past it, so a holiday running past
+    the last visible day still shows where it ends."""
+    app, _registry, core, _settings = _stub_app()
+    today = datetime.now(UTC).date()
+    # A 10-day holiday starting today, shown through a 3-day window.
+    core.server_module.load_events.return_value = [
+        {
+            "summary": "Long holiday",
+            "start": today.isoformat(),
+            "end": (today + timedelta(days=10)).isoformat(),  # exclusive
+            "all_day": True,
+        },
+    ]
+    with patch.object(server, "current_app", app):
+        out = server.fetch(options={"days_ahead": "3"}, settings={}, ctx={})
+    inclusive_end = (today + timedelta(days=9)).isoformat()
+    assert len(out["days"]) == 3
+    for day in out["days"]:
+        assert day["events"][0]["end_date"] == inclusive_end
+
+
+def test_timed_rows_have_no_end_date() -> None:
+    """``end_date`` is the all-day span marker; timed events carry
+    start_local/end_local instead and must not get a badge."""
+    app, _registry, core, _settings = _stub_app()
+    core.server_module.load_events.return_value = [
+        {
+            "summary": "standup",
+            "start": _future_today_iso(1),
+            "end": _future_today_iso(2),
+            "all_day": False,
+        },
+    ]
+    with patch.object(server, "current_app", app):
+        out = server.fetch(options={"days_ahead": "1"}, settings={}, ctx={})
+    assert "end_date" not in out["days"][0]["events"][0]
+
+
 def test_multi_day_timed_event_spans_every_day() -> None:
     """A conference that starts Friday 09:00 and ends Sunday 17:00
     should appear on Friday, Saturday, and Sunday in the agenda."""
@@ -374,6 +416,36 @@ def test_skip_empty_days_off_keeps_blank_buckets() -> None:
     assert len(out["days"]) == 3
     for d in out["days"]:
         assert d["events"] == []
+
+
+def test_always_show_today_keeps_empty_today_column() -> None:
+    """``always_show_today`` exempts today from ``skip_empty_days`` so the
+    panel always shows the current date, even on a day with nothing on it.
+    Without it, a quiet today is dropped and the agenda starts at tomorrow."""
+    app, _registry, core, _settings = _stub_app()
+    core.server_module.load_events.return_value = [
+        {
+            "summary": "tomorrow only",
+            "start": _future_today_iso(25),
+            "end": _future_today_iso(26),
+            "all_day": False,
+            "feed_name": "y",
+            "feed_colour": "#abc",
+        }
+    ]
+    opts = {"days_ahead": "3", "skip_empty_days": True}
+
+    with patch.object(server, "current_app", app):
+        without = server.fetch(options=opts, settings={}, ctx={})
+        with_today = server.fetch(
+            options={**opts, "always_show_today": True}, settings={}, ctx={}
+        )
+
+    assert without["days"][0]["is_today"] is False
+    assert with_today["days"][0]["is_today"] is True
+    assert with_today["days"][0]["events"] == []
+    # The empty day is additive, not a re-bucketing of the real event.
+    assert with_today["count"] == without["count"]
 
 
 def test_fetch_does_not_forward_columns_or_scale_options() -> None:

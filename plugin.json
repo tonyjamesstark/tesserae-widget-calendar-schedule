@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Calendar, Schedule",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "kind": "widget",
   "description": "Timeline-rail agenda view. Lists upcoming events grouped by day, with a thin ink rail connecting per-event nodes and a coloured start-time chip carrying the feed accent. Titles wrap freely so the widget stays legible from 1 up to 4 narrow columns on wide e-ink panels. Pulls from the same calendar_core feeds as the other calendar_* widgets.",
   "icon": "ph-list-bullets",
@@ -76,6 +76,13 @@
       "type": "boolean",
       "label": "Skip days with no events",
       "default": true
+    },
+    {
+      "name": "always_show_today",
+      "type": "boolean",
+      "label": "Always show today",
+      "default": false,
+      "help": "Keeps today's column in the agenda even when it has no events, so the panel always shows the current date. Only matters when 'Skip days with no events' is on."
     },
     {
       "name": "max_events_per_day",
